@@ -41,10 +41,7 @@ public:
     void ApplySettingsToControlledFactories(UObject* Settings);
 
     // Вспомогательная функция для рекурсивного обхода
-    void RecursiveFindFactories(UFGCircuitConnectionComponent* StartConnection, 
-                                TArray<AFGBuildableFactory*>& OutFactories, 
-                                TSet<AActor*>& Visited);
-
-    // Тестовая функция для проверки подключений
-    void DebugPrintConnections();
+    void RecursiveFindFactories(UFGCircuitConnectionComponent* StartConnection,
+        TArray<AFGBuildableFactory*>& OutFactories,
+        TSet<AActor*>& Visited);
 };

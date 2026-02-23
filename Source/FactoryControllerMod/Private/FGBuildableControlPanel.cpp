@@ -1,261 +1,218 @@
 #include "FGBuildableControlPanel.h"
-#include "FGPowerConnectionComponent.h"
-#include "FGBuildableFactory.h"
-#include "FGBuildablePowerPole.h"
-#include "Components/BoxComponent.h"
-#include "FGCharacterPlayer.h"
-#include "Engine/World.h"
-#include "FGBuildableControlPanel.h"
 #include "FGPlayerController.h"
 #include "FGGameState.h"
-#include "FGCharacterPlayer.h"
-#include "EngineUtils.h"
+#include "FGPowerCircuit.h"
+#include "FGBuildableWire.h"
+#include "FGPowerConnectionComponent.h"
+#include "FGTrainPlatformConnection.h"
 
+// Определяем категорию логирования
 DEFINE_LOG_CATEGORY(FactoryControllerMod);
-
-// Временный класс для FactorySettingsData
-class UFactorySettingsData : public UObject
-{
-public:
-    void ApplyToFactory(AFGBuildableFactory* Factory)
-    {
-        // Заглушка
-    }
-};
 
 AFGBuildableControlPanel::AFGBuildableControlPanel()
 {
-	// Входное соединение
-    InputConnection = CreateDefaultSubobject<UFGPowerConnectionComponent>(TEXT("InputConnection"));
-    InputConnection->SetupAttachment(RootComponent);  // <-- ВАЖНО: прикрепляем к Root
-
-     // Выходное соединение
-    OutputConnection = CreateDefaultSubobject<UFGPowerConnectionComponent>(TEXT("OutputConnection"));
-    OutputConnection->SetupAttachment(RootComponent);  // <-- прикрепляем к Root
-
-    // Интерактивная коробка
-    //InteractionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("InteractionBox"));
-    //InteractionBox->SetupAttachment(RootComponent);  // <-- прикрепляем к Root
-
-    // Если есть Mesh
-    MainMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
+    // Создаем Mesh компонент
+    MainMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MainMesh"));
     MainMesh->SetupAttachment(RootComponent);
 
-    // Box компонент для взаимодействия (вместо FGInteractComponent)
-    //InteractionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("InteractionBox"));
-    //InteractionBox->SetupAttachment(RootComponent);
-    //InteractionBox->SetBoxExtent(FVector(100, 100, 100));
-    //InteractionBox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-    //InteractionBox->SetCollisionResponseToAllChannels(ECR_Ignore);
-    //InteractionBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+    //// Настраиваем коллизию для взаимодействия
+    //MainMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    //MainMesh->SetCollisionResponseToAllChannels(ECR_Block);
+    //MainMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+    //MainMesh->SetCollisionResponseToChannel(ECC_Camera, ECR_Block);
 
+    // Создаем Input Connection (питание)
+    InputConnection = CreateDefaultSubobject<UFGPowerConnectionComponent>(TEXT("InputConnection"));
+    InputConnection->SetupAttachment(RootComponent);
+
+    // Создаем Output Connection (питание)
+    OutputConnection = CreateDefaultSubobject<UFGPowerConnectionComponent>(TEXT("OutputConnection"));
+    OutputConnection->SetupAttachment(RootComponent);
+
+    // Настройки для корректной работы
     bReplicates = true;
-    bAlwaysRelevant = true;
 }
 
 void AFGBuildableControlPanel::OnUse_Implementation(AFGCharacterPlayer* byCharacter, const FUseState& state)
 {
-    // Сначала вызываем родительский метод
     Super::OnUse_Implementation(byCharacter, state);
 
-    // Проверяем, что персонаж существует
-    if (!byCharacter)
-    {
-        UE_LOG(FactoryControllerMod, Warning, TEXT("Control Panel: byCharacter is NULL"));
-        return;
-    }
+    if (!byCharacter) return;
 
-    // Логируем вызов
     UE_LOG(FactoryControllerMod, Display, TEXT("========== CONTROL PANEL INTERACTION =========="));
     UE_LOG(FactoryControllerMod, Display, TEXT("OnUse called by: %s"), *byCharacter->GetName());
 
     // Получаем список заводов
     TArray<AFGBuildableFactory*> Factories = GetControlledFactories();
 
-    // Выводим количество
-    UE_LOG(FactoryControllerMod, Display, TEXT("Found %d controlled factories:"), Factories.Num());
-
-    // Выводим на экран
-    GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green,
-        FString::Printf(TEXT("Control Panel: %d factories found"), Factories.Num()));
-
-    // Выводим каждый завод
-    for (AFGBuildableFactory* Factory : Factories)
+    if (Factories.Num() == 0)
     {
-        if (Factory)
+        UE_LOG(FactoryControllerMod, Display, TEXT("Control Panel found 0 factories under its control"));
+        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red,
+            TEXT("No factories connected!"));
+    }
+    else
+    {
+        UE_LOG(FactoryControllerMod, Display, TEXT("Control Panel found %d factories under its control"), Factories.Num());
+        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green,
+            FString::Printf(TEXT("Found %d factories!"), Factories.Num()));
+
+        // Выводим каждый завод
+        for (int32 i = 0; i < Factories.Num(); i++)
         {
-            FString FactoryName = Factory->GetName();
-            UE_LOG(FactoryControllerMod, Display, TEXT("  - %s"), *FactoryName);
-            GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow,
-                FString::Printf(TEXT("  • %s"), *FactoryName));
+            if (Factories[i])
+            {
+                FString FactoryName = Factories[i]->GetName();
+                UE_LOG(FactoryControllerMod, Display, TEXT("  %d. %s"), i + 1, *FactoryName);
+                GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow,
+                    FString::Printf(TEXT("  %d. %s"), i + 1, *FactoryName));
+            }
         }
     }
 
     UE_LOG(FactoryControllerMod, Display, TEXT("================================================"));
 
-    // Простая визуальная обратная связь - мигание
+    // Визуальная обратная связь - мигание
     if (MainMesh)
     {
-        // Временно отключаем видимость
         MainMesh->SetVisibility(false);
-
-        // Возвращаем через 0.1 секунды
         FTimerHandle TimerHandle;
         GetWorldTimerManager().SetTimer(TimerHandle, [this]() {
-            if (MainMesh)
-            {
-                MainMesh->SetVisibility(true);
-            }
+            if (MainMesh) MainMesh->SetVisibility(true);
             }, 0.1f, false);
     }
 }
 
 FText AFGBuildableControlPanel::GetLookAtDecription_Implementation(AFGCharacterPlayer* byCharacter, const FUseState& state) const
 {
-    // Текст, который появляется при наведении
-    return FText::FromString(TEXT("Open Control Panel"));
+    return FText::FromString(TEXT("Open Factory Control Panel"));
 }
 
-void AFGBuildableControlPanel::BeginPlay()
+void AFGBuildableControlPanel::RecursiveFindFactories(UFGCircuitConnectionComponent* StartConnection,
+    TArray<AFGBuildableFactory*>& OutFactories,
+    TSet<AActor*>& Visited)
 {
-    Super::BeginPlay();
+    if (!StartConnection) return;
 
-    if (HasAuthority())
+    AActor* Owner = StartConnection->GetOwner();
+    if (!Owner || Visited.Contains(Owner)) return;
+
+    Visited.Add(Owner);
+
+    UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("    Visiting: %s"), *Owner->GetName());
+
+    // Проверяем, завод ли это
+    AFGBuildableFactory* Factory = Cast<AFGBuildableFactory>(Owner);
+    if (Factory)
     {
-        UE_LOG(FactoryControllerMod, Log, TEXT("Control Panel initialized at %s"), *GetActorLocation().ToString());
+        UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Found factory: %s"), *Factory->GetName());
+        OutFactories.Add(Factory);
     }
-}
 
-void AFGBuildableControlPanel::NotifyActorBeginOverlap(AActor* OtherActor)
-{
-    Super::NotifyActorBeginOverlap(OtherActor);
+    // Получаем все проводные подключения через GetConnections
+    TArray<UFGCircuitConnectionComponent*> Connections;
+    StartConnection->GetConnections(Connections);  // Правильный метод!
 
-    if (AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(OtherActor))
+    UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Found %d wired connections"), Connections.Num());
+
+    for (UFGCircuitConnectionComponent* Conn : Connections)
     {
-        OnInteract(Character);
+        if (Conn && Conn->GetOwner() != Owner)
+        {
+            RecursiveFindFactories(Conn, OutFactories, Visited);
+        }
+    }
+
+    // Также проверяем скрытые подключения (через стены/столбы)
+    TArray<UFGCircuitConnectionComponent*> HiddenConnections;
+    StartConnection->GetHiddenConnections(HiddenConnections);  // Правильный метод!
+
+    UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Found %d hidden connections"), HiddenConnections.Num());
+
+    for (UFGCircuitConnectionComponent* Conn : HiddenConnections)
+    {
+        if (Conn && Conn->GetOwner() != Owner)
+        {
+            RecursiveFindFactories(Conn, OutFactories, Visited);
+        }
     }
 }
 
 TArray<AFGBuildableFactory*> AFGBuildableControlPanel::GetControlledFactories()
 {
-    if (!HasAuthority() || !GetWorld())
+    TArray<AFGBuildableFactory*> Factories;
+    TSet<AActor*> Visited;
+
+    UE_LOG(FactoryControllerMod, Display, TEXT("GetControlledFactories called"));
+
+    if (!OutputConnection)
     {
-        return TArray<AFGBuildableFactory*>();
+        UE_LOG(FactoryControllerMod, Error, TEXT("OutputConnection is NULL!"));
+        return Factories;
     }
 
-    CachedControlledFactories.Empty();
+    // Проверяем прямые подключения через GetConnections
+    TArray<UFGCircuitConnectionComponent*> DirectConnections;
+    OutputConnection->GetConnections(DirectConnections);
 
-    if (OutputConnection)
+    UE_LOG(FactoryControllerMod, Display, TEXT("Direct connections from Output: %d"), DirectConnections.Num());
+
+    // Логируем информацию о OutputConnection
+    UE_LOG(FactoryControllerMod, Display, TEXT("OutputConnection - Max connections: %d"), OutputConnection->GetMaxNumConnections());
+    UE_LOG(FactoryControllerMod, Display, TEXT("OutputConnection - Num connections: %d"), OutputConnection->GetNumConnections());
+    UE_LOG(FactoryControllerMod, Display, TEXT("OutputConnection - Circuit ID: %d"), OutputConnection->GetCircuitID());
+
+    // Добавляем себя в посещенные, чтобы не зациклиться
+    Visited.Add(this);
+
+    // Запускаем рекурсивный обход от каждого прямого подключения
+    for (UFGCircuitConnectionComponent* Conn : DirectConnections)
     {
-        TSet<UFGPowerConnectionComponent*> VisitedConnections;
-        FindAllFactoriesFromConnection(OutputConnection, CachedControlledFactories, VisitedConnections);
-    }
-
-    UE_LOG(FactoryControllerMod, Log, TEXT("Control Panel found %d factories under its control"),
-        CachedControlledFactories.Num());
-
-    return CachedControlledFactories;
-}
-
-void AFGBuildableControlPanel::FindAllFactoriesFromConnection(
-    UFGPowerConnectionComponent* StartConnection,
-    TArray<AFGBuildableFactory*>& OutFactories,
-    TSet<UFGPowerConnectionComponent*>& VisitedConnections,
-    int32 Depth)
-{
-    if (!StartConnection || VisitedConnections.Contains(StartConnection))
-    {
-        return;
-    }
-
-    if (Depth > 100)
-    {
-        UE_LOG(FactoryControllerMod, Warning, TEXT("Reached maximum recursion depth in power grid"));
-        return;
-    }
-
-    VisitedConnections.Add(StartConnection);
-
-    AActor* Owner = StartConnection->GetOwner();
-
-    if (Owner)
-    {
-        if (AFGBuildableFactory* Factory = Cast<AFGBuildableFactory>(Owner))
+        if (Conn)
         {
-            if (Factory != Cast<AFGBuildableFactory>(this))
-            {
-                OutFactories.Add(Factory);
-                UE_LOG(FactoryControllerMod, Verbose, TEXT("Depth %d: Found factory: %s"), Depth, *Factory->GetName());
-            }
-        }
-        else if (AFGBuildablePowerPole* Pole = Cast<AFGBuildablePowerPole>(Owner))
-        {
-            UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("Depth %d: Passing through pole: %s"), Depth, *Pole->GetName());
+            AActor* ConnOwner = Conn->GetOwner();
+            UE_LOG(FactoryControllerMod, Display, TEXT("  Direct connection to: %s"),
+                ConnOwner ? *ConnOwner->GetName() : TEXT("NULL"));
+            RecursiveFindFactories(Conn, Factories, Visited);
         }
     }
 
-    TArray<UFGPowerConnectionComponent*> ConnectedConnections;
-    if (Owner)
-    {
-        Owner->GetComponents<UFGPowerConnectionComponent>(ConnectedConnections);
-    }
+    // Также проверяем скрытые подключения от Output
+    TArray<UFGCircuitConnectionComponent*> HiddenConnections;
+    OutputConnection->GetHiddenConnections(HiddenConnections);
 
-    for (UFGPowerConnectionComponent* Connected : ConnectedConnections)
+    UE_LOG(FactoryControllerMod, Display, TEXT("Hidden connections from Output: %d"), HiddenConnections.Num());
+
+    for (UFGCircuitConnectionComponent* Conn : HiddenConnections)
     {
-        if (Connected && !VisitedConnections.Contains(Connected))
+        if (Conn)
         {
-            bool bLeadsToInput = false;
-
-            AActor* ConnectedOwner = Connected->GetOwner();
-            if (ConnectedOwner == this && Connected == InputConnection)
-            {
-                bLeadsToInput = true;
-            }
-
-            if (!bLeadsToInput)
-            {
-                FindAllFactoriesFromConnection(Connected, OutFactories, VisitedConnections, Depth + 1);
-            }
+            AActor* ConnOwner = Conn->GetOwner();
+            UE_LOG(FactoryControllerMod, Display, TEXT("  Hidden connection to: %s"),
+                ConnOwner ? *ConnOwner->GetName() : TEXT("NULL"));
+            RecursiveFindFactories(Conn, Factories, Visited);
         }
     }
+
+    // Убираем дубликаты
+    TSet<AFGBuildableFactory*> UniqueFactories;
+    for (AFGBuildableFactory* Factory : Factories)
+    {
+        if (Factory)
+        {
+            UniqueFactories.Add(Factory);
+        }
+    }
+
+    Factories = UniqueFactories.Array();
+
+    UE_LOG(FactoryControllerMod, Display, TEXT("Total unique factories found: %d"), Factories.Num());
+
+    return Factories;
 }
 
-void AFGBuildableControlPanel::ApplySettingsToControlledFactories(UObject* SettingsObject)
+void AFGBuildableControlPanel::ApplySettingsToControlledFactories(UObject* Settings)
 {
-    if (!SettingsObject || !HasAuthority())
-    {
-        return;
-    }
-
-    // Проверяем, что это нужный тип
-    UFactorySettingsData* Settings = Cast<UFactorySettingsData>(SettingsObject);
-    if (!Settings)
-    {
-        UE_LOG(FactoryControllerMod, Warning, TEXT("Invalid settings object"));
-        return;
-    }
-
-    TArray<AFGBuildableFactory*> Controlled = GetControlledFactories();
-
-    for (AFGBuildableFactory* Factory : Controlled)
-    {
-        Settings->ApplyToFactory(Factory);
-    }
-
-    UE_LOG(FactoryControllerMod, Log, TEXT("Applied settings to %d controlled factories"), Controlled.Num());
-}
-
-void AFGBuildableControlPanel::OnInteract(AFGCharacterPlayer* interactingCharacter)
-{
-    if (!interactingCharacter)
-    {
-        return;
-    }
-
-    int32 ControlledCount = GetControlledFactories().Num();
-
-    UE_LOG(FactoryControllerMod, Warning, TEXT("=== CONTROL PANEL INFO ==="));
-    UE_LOG(FactoryControllerMod, Warning, TEXT("Controlled factories: %d"), ControlledCount);
-
-    // Здесь будем открывать UI
+    // TODO: Implement settings application
+    UE_LOG(FactoryControllerMod, Display, TEXT("ApplySettingsToControlledFactories called"));
 }
