@@ -55,7 +55,6 @@ AFGBuildableControlPanel::AFGBuildableControlPanel()
 
 void AFGBuildableControlPanel::OnUse_Implementation(AFGCharacterPlayer* byCharacter, const FUseState& state)
 {
-    UE_LOG(FactoryControllerMod, Display, TEXT("OnUse_Implementation param state X: %f"), state.UseLocation.X);
     // Сначала вызываем родительский метод
     Super::OnUse_Implementation(byCharacter, state);
 

@@ -2,69 +2,49 @@
 
 #include "CoreMinimal.h"
 #include "FGBuildable.h"
+#include "FGPowerConnectionComponent.h"
+#include "FGCharacterPlayer.h"
+#include "FGBuildableFactory.h"
 #include "FGBuildableControlPanel.generated.h"
 
-// Просто объявляем классы, не включая заголовки
-class UFGPowerConnectionComponent;
-class UFGInteractWidget;
-class AFGCharacterPlayer;
-class AFGBuildableFactory;
-class UFactorySettingsData;
-
-DECLARE_LOG_CATEGORY_EXTERN(FactoryControllerMod, Verbose, All);
+// Создаем категорию для логирования
+DECLARE_LOG_CATEGORY_EXTERN(FactoryControllerMod, Log, All);
 
 UCLASS()
 class FACTORYCONTROLLERMOD_API AFGBuildableControlPanel : public AFGBuildable
 {
     GENERATED_BODY()
-
 public:
     AFGBuildableControlPanel();
 
-    // Основной меш панели управления
+    // Меш панели
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh")
     UStaticMeshComponent* MainMesh;
 
-    // Два соединения: вход и выход
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    // Компоненты подключения
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Power")
     UFGPowerConnectionComponent* InputConnection;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Power")
     UFGPowerConnectionComponent* OutputConnection;
 
-    // Для взаимодействия используем стандартный механизм Unreal
-    //UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-    //class UBoxComponent* InteractionBox;
-
-    // Переопределяем методы взаимодействия из AFGBuildable
+    // Переопределяем методы взаимодействия
     virtual void OnUse_Implementation(class AFGCharacterPlayer* byCharacter, const FUseState& state) override;
     virtual FText GetLookAtDecription_Implementation(class AFGCharacterPlayer* byCharacter, const FUseState& state) const override;
 
-
-    // Получить все заводы, которые находятся "после" этой панели
-    UFUNCTION(BlueprintCallable, Category = "Control Panel")
+    // Получить все заводы под управлением
+    UFUNCTION(BlueprintCallable)
     TArray<AFGBuildableFactory*> GetControlledFactories();
 
-    // Применить настройки ко всем управляемым заводам
-    UFUNCTION(BlueprintCallable, Category = "Control Panel")
+    // Применить настройки ко всем заводам
+    UFUNCTION(BlueprintCallable)
     void ApplySettingsToControlledFactories(UObject* Settings);
 
-    // Функция взаимодействия (открыть UI)
-    UFUNCTION(BlueprintCallable, Category = "Interaction")
-    void OnInteract(AFGCharacterPlayer* interactingCharacter);
+    // Вспомогательная функция для рекурсивного обхода
+    void RecursiveFindFactories(UFGCircuitConnectionComponent* StartConnection, 
+                                TArray<AFGBuildableFactory*>& OutFactories, 
+                                TSet<AActor*>& Visited);
 
-protected:
-    virtual void BeginPlay() override;
-    virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
-
-private:
-    // Рекурсивный поиск всех заводов от указанной точки соединения
-    void FindAllFactoriesFromConnection(
-        UFGPowerConnectionComponent* StartConnection,
-        TArray<AFGBuildableFactory*>& OutFactories,
-        TSet<UFGPowerConnectionComponent*>& VisitedConnections,
-        int32 Depth = 0);
-
-    UPROPERTY()
-    TArray<AFGBuildableFactory*> CachedControlledFactories;
+    // Тестовая функция для проверки подключений
+    void DebugPrintConnections();
 };
