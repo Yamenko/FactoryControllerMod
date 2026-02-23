@@ -1,4 +1,5 @@
 #include "FGBuildableControlPanel.h"
+#include "FactoryTypeFilter.h"  // Добавляем новый класс
 #include "FGPlayerController.h"
 #include "FGGameState.h"
 #include "FGPowerCircuit.h"
@@ -14,12 +15,6 @@ AFGBuildableControlPanel::AFGBuildableControlPanel()
     // Создаем Mesh компонент
     MainMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MainMesh"));
     MainMesh->SetupAttachment(RootComponent);
-
-    //// Настраиваем коллизию для взаимодействия
-    //MainMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    //MainMesh->SetCollisionResponseToAllChannels(ECR_Block);
-    //MainMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
-    //MainMesh->SetCollisionResponseToChannel(ECC_Camera, ECR_Block);
 
     // Создаем Input Connection (питание)
     InputConnection = CreateDefaultSubobject<UFGPowerConnectionComponent>(TEXT("InputConnection"));
@@ -99,19 +94,36 @@ void AFGBuildableControlPanel::RecursiveFindFactories(UFGCircuitConnectionCompon
 
     Visited.Add(Owner);
 
-    UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("    Visiting: %s"), *Owner->GetName());
+    UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("    Visiting: %s [%s]"),
+        *Owner->GetName(),
+        *UFactoryTypeFilter::GetActorTypeName(Owner));
 
-    // Проверяем, завод ли это
-    AFGBuildableFactory* Factory = Cast<AFGBuildableFactory>(Owner);
-    if (Factory)
+    // Если это генератор - останавливаем обход (это входная сторона)
+    if (UFactoryTypeFilter::IsPowerGenerator(Owner))
     {
-        UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Found factory: %s"), *Factory->GetName());
-        OutFactories.Add(Factory);
+        UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Generator found, stopping (input side)"));
+        return;
+    }
+
+    // Если это завод - добавляем в список управляемых
+    if (UFactoryTypeFilter::IsControllableFactory(Owner))
+    {
+        AFGBuildableFactory* Factory = Cast<AFGBuildableFactory>(Owner);
+        if (Factory)
+        {
+            UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Found controllable factory: %s"), *Factory->GetName());
+            OutFactories.Add(Factory);
+        }
+    }
+    // Если это распределитель (столб) - просто продолжаем обход
+    else if (UFactoryTypeFilter::IsPowerDistributor(Owner))
+    {
+        UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Power distributor found, continuing traversal"));
     }
 
     // Получаем все проводные подключения через GetConnections
     TArray<UFGCircuitConnectionComponent*> Connections;
-    StartConnection->GetConnections(Connections);  // Правильный метод!
+    StartConnection->GetConnections(Connections);
 
     UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Found %d wired connections"), Connections.Num());
 
@@ -125,7 +137,7 @@ void AFGBuildableControlPanel::RecursiveFindFactories(UFGCircuitConnectionCompon
 
     // Также проверяем скрытые подключения (через стены/столбы)
     TArray<UFGCircuitConnectionComponent*> HiddenConnections;
-    StartConnection->GetHiddenConnections(HiddenConnections);  // Правильный метод!
+    StartConnection->GetHiddenConnections(HiddenConnections);
 
     UE_LOG(FactoryControllerMod, VeryVerbose, TEXT("      Found %d hidden connections"), HiddenConnections.Num());
 
@@ -151,6 +163,9 @@ TArray<AFGBuildableFactory*> AFGBuildableControlPanel::GetControlledFactories()
         return Factories;
     }
 
+    // Получаем Circuit ID выхода
+    int32 OutputCircuitID = OutputConnection->GetCircuitID();
+
     // Проверяем прямые подключения через GetConnections
     TArray<UFGCircuitConnectionComponent*> DirectConnections;
     OutputConnection->GetConnections(DirectConnections);
@@ -160,7 +175,7 @@ TArray<AFGBuildableFactory*> AFGBuildableControlPanel::GetControlledFactories()
     // Логируем информацию о OutputConnection
     UE_LOG(FactoryControllerMod, Display, TEXT("OutputConnection - Max connections: %d"), OutputConnection->GetMaxNumConnections());
     UE_LOG(FactoryControllerMod, Display, TEXT("OutputConnection - Num connections: %d"), OutputConnection->GetNumConnections());
-    UE_LOG(FactoryControllerMod, Display, TEXT("OutputConnection - Circuit ID: %d"), OutputConnection->GetCircuitID());
+    UE_LOG(FactoryControllerMod, Display, TEXT("OutputConnection - Circuit ID: %d"), OutputCircuitID);
 
     // Добавляем себя в посещенные, чтобы не зациклиться
     Visited.Add(this);
@@ -171,8 +186,9 @@ TArray<AFGBuildableFactory*> AFGBuildableControlPanel::GetControlledFactories()
         if (Conn)
         {
             AActor* ConnOwner = Conn->GetOwner();
-            UE_LOG(FactoryControllerMod, Display, TEXT("  Direct connection to: %s"),
-                ConnOwner ? *ConnOwner->GetName() : TEXT("NULL"));
+            UE_LOG(FactoryControllerMod, Display, TEXT("  Direct connection to: %s [%s]"),
+                ConnOwner ? *ConnOwner->GetName() : TEXT("NULL"),
+                ConnOwner ? *UFactoryTypeFilter::GetActorTypeName(ConnOwner) : TEXT("NULL"));
             RecursiveFindFactories(Conn, Factories, Visited);
         }
     }
@@ -188,8 +204,9 @@ TArray<AFGBuildableFactory*> AFGBuildableControlPanel::GetControlledFactories()
         if (Conn)
         {
             AActor* ConnOwner = Conn->GetOwner();
-            UE_LOG(FactoryControllerMod, Display, TEXT("  Hidden connection to: %s"),
-                ConnOwner ? *ConnOwner->GetName() : TEXT("NULL"));
+            UE_LOG(FactoryControllerMod, Display, TEXT("  Hidden connection to: %s [%s]"),
+                ConnOwner ? *ConnOwner->GetName() : TEXT("NULL"),
+                ConnOwner ? *UFactoryTypeFilter::GetActorTypeName(ConnOwner) : TEXT("NULL"));
             RecursiveFindFactories(Conn, Factories, Visited);
         }
     }
@@ -215,4 +232,60 @@ void AFGBuildableControlPanel::ApplySettingsToControlledFactories(UObject* Setti
 {
     // TODO: Implement settings application
     UE_LOG(FactoryControllerMod, Display, TEXT("ApplySettingsToControlledFactories called"));
+}
+
+// Опционально: функция для отладки подключений
+void AFGBuildableControlPanel::DebugPrintConnectionStats() const 
+{
+    UE_LOG(FactoryControllerMod, Display, TEXT("=== CONTROL PANEL CONNECTION STATS ==="));
+
+    if (InputConnection)
+    {
+        TArray<UFGCircuitConnectionComponent*> InputConns;
+        InputConnection->GetConnections(InputConns);
+        UE_LOG(FactoryControllerMod, Display, TEXT("Input connections: %d"), InputConns.Num());
+
+        TArray<UFGCircuitConnectionComponent*> InputHidden;
+        InputConnection->GetHiddenConnections(InputHidden);
+        UE_LOG(FactoryControllerMod, Display, TEXT("Input hidden connections: %d"), InputHidden.Num());
+
+        for (int32 i = 0; i < InputConns.Num(); i++)
+        {
+            if (InputConns[i])
+            {
+                AActor* Owner = InputConns[i]->GetOwner();
+                UE_LOG(FactoryControllerMod, Display, TEXT("  Input %d: %s [%s]"),
+                    i + 1,
+                    Owner ? *Owner->GetName() : TEXT("NULL"),
+                    Owner ? *UFactoryTypeFilter::GetActorTypeName(Owner) : TEXT("NULL"));
+            }
+        }
+    }
+
+    if (OutputConnection)
+    {
+        TArray<UFGCircuitConnectionComponent*> OutputConns;
+        OutputConnection->GetConnections(OutputConns);
+        UE_LOG(FactoryControllerMod, Display, TEXT("Output connections: %d"), OutputConns.Num());
+
+        TArray<UFGCircuitConnectionComponent*> OutputHidden;
+        OutputConnection->GetHiddenConnections(OutputHidden);
+        UE_LOG(FactoryControllerMod, Display, TEXT("Output hidden connections: %d"), OutputHidden.Num());
+
+        UE_LOG(FactoryControllerMod, Display, TEXT("Output Circuit ID: %d"), OutputConnection->GetCircuitID());
+
+        for (int32 i = 0; i < OutputConns.Num(); i++)
+        {
+            if (OutputConns[i])
+            {
+                AActor* Owner = OutputConns[i]->GetOwner();
+                UE_LOG(FactoryControllerMod, Display, TEXT("  Output %d: %s [%s]"),
+                    i + 1,
+                    Owner ? *Owner->GetName() : TEXT("NULL"),
+                    Owner ? *UFactoryTypeFilter::GetActorTypeName(Owner) : TEXT("NULL"));
+            }
+        }
+    }
+
+    UE_LOG(FactoryControllerMod, Display, TEXT("========================================"));
 }

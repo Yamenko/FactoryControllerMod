@@ -44,4 +44,7 @@ public:
     void RecursiveFindFactories(UFGCircuitConnectionComponent* StartConnection,
         TArray<AFGBuildableFactory*>& OutFactories,
         TSet<AActor*>& Visited);
+
+    // Функция для отладки
+    void DebugPrintConnectionStats() const ;
 };
